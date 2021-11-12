@@ -1,0 +1,867 @@
+---
+title: "Project 1 Redwood Data Report"
+author: "Haoming Yang, Chiyu Ma"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+\fontsize{11}{11}
+\selectfont
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = F, message = F)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(pander)
+library(ggplot2)
+library(cowplot)
+library(rjson)
+require(gridExtra)
+library(GGally)
+```
+
+```{r}
+my_theme <- theme_bw()+
+  theme(plot.title = element_text(hjust=0.5),
+        axis.text.x = element_text( angle = 45, 
+                                   vjust = 0.5),
+        axis.text.y = element_text(angle=45),
+        plot.subtitle   = element_text(color="red")
+)
+```
+
+# 1 General Purpose and Data
+## 1.1 General Purpose
+Given the rising interests of technological application on fields such as biology, and specifically the interests in understanding the microclimate of redwood trees in Sonoma California, a group of researchers lead by Tolle designed a wireless micro weather station to collect weather related data for biologists. The dataset include valuable telemetry such as temperature and humidity that provides insights to the microclimate created by 70 meters tall redwoods in Sonoma. From Tolle's study, one can conclude that modern wireless and micro sensor technology provided valuable information, such as the sap flow of redwood trees corresponding to weather change, for the research of environment, and, in this case, redwood forest. However, one cannot forget the development of rigorous statistical data analysis mentioned at the ending Tolle's paper that enabled the progress of such research.
+
+Our study takes the data collected by Tolle, et.al, and perform additional statistical analysis such as distribution analysis and principal component analysis to further explore the details of redwood's microclimate effects.
+
+## 1.2 Data Collection
+The sensor designed by Tolle and his group of researcher is going to be placed within 0.1-1 meter of the redwood tree trunks in various height with a 2 meter space in between each sensor. The first sensor is placed on 15 meters, then all the way up to 70 meters. They are mainly placed on the west side of the tree because the thicker canopy of the west side provides better sheltering of the sensors from environmental effect. They are also placed in different orientation to ensure a more rounded measurement of the environment. All information about sensor placements, including the time of placements, vertical distance of the sensor, the angular location, and the radial distance to the trunk were recorded in the mote-location dataset. 
+
+Each sensor will record telemetry data including humidity, temperature, and the photosynthesis activation radiation (PAR) every 5 minutes for 44 days. The PAR is both recorded on top of the sensor to record the inflected light and at the bottom of the sensor to record reflected light. The sensor is also going to log its voltage which can be used to inform as about error observations. 
+
+Before the collection of data, the sensors were calibrated on the roof and in a calibration chamber. Roof will provides direct sunlight that can calibrate the PAR sensors on top and bottom of the sensor. Then the temperature and humidity sensors were calibrated in a weather controlled chamber with cycling of temperature from 5-30 $\circ_\mathbf{C}$ and a humidity of 20-90 RH% every 30 seconds. 
+
+The feature of interests include humidity, humid_temp, hamatop and hamabot (PAR measure on top and bottom of the sensor). These data measures the micro climate of the redwood trees. There are two dataset that describes the environmental measures: *sonoma-data-log* was the data thata were stored locally during the data collection process, while the *sonoma-data-net* were the data that was transmitted to offsite database during the data collection process. We can also analyze the effect of time and location using the data provided in the *mote-location* dataset. 
+
+# 2 Data Cleaning
+```{r}
+sonoma_log = read.csv("sonoma-data-log.csv")
+sonoma_net = read.csv("sonoma-data-net.csv")
+#sonoma_all = read.csv('sonoma-data-all.csv')
+```
+
+```{r}
+result <- fromJSON(file = "sonoma-dates.json")
+en = result$`epochNums `
+en = substr(en, 2, nchar(en)-1)
+en = scan(text = en, what = "")
+result$`epochNums ` = en
+
+ed = result$`
+
+epochDates `
+ed = substr(ed, 2, nchar(ed)-1)
+ed = scan(text = ed, what = "")
+```
+
+```{r}
+
+sonoma_date = data.frame(epoch = en,
+                         Dates = ed)
+
+sonoma_date$epoch = as.integer(sonoma_date$epoch)
+sonoma_date$Dates = gsub("  "," ",sonoma_date$Date)
+```
+
+```{r}
+sonoma_date = sonoma_date %>% separate(Dates,
+                                       c("Weekday","Month","Date","Time","Year"),
+                                       sep = " ")
+```
+
+```{r}
+
+sonoma_log = merge(x = sonoma_log,
+                    y = sonoma_date,
+                    by = 'epoch',
+                    all.y = T)
+sonoma_log$result_time = NULL
+```
+
+```{r}
+sonoma_net = merge(x = sonoma_net,
+                    y = sonoma_date,
+                    by = 'epoch',
+                    all.x = T)
+sonoma_net$result_time = NULL
+```
+
+
+```{r}
+sonoma_log['id'] = paste(as.character(sonoma_log$epoch), as.character(sonoma_log$nodeid))
+sonoma_net['id'] = paste(as.character(sonoma_net$epoch), as.character(sonoma_net$nodeid))
+mote_loc = read.delim("mote-location-data.txt", sep='', header=TRUE)
+```
+
+```{r}
+colnames(mote_loc)[1] = "nodeid"
+sonoma_net = merge(x = sonoma_net,
+                    y = mote_loc,
+                    by = 'nodeid',
+                    all.x = T)
+
+sonoma_log = merge(x = sonoma_log,
+                    y = mote_loc,
+                    by = 'nodeid',
+                    all.x = T)
+
+```
+
+```{r}
+
+pvoltage = ggplot(sonoma_net, aes(x = voltage))+
+  geom_histogram(bins = 30,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "V",
+       y= "Frequency",
+       title = "Voltage",
+       subtitle = "Net Data")+
+  my_theme
+```
+
+```{r}
+phumid = ggplot(sonoma_net, aes(x = humidity))+
+  geom_histogram(binwidth = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "%RH",
+       y = "Frequency",
+       title = "Humidity")+
+  my_theme
+```
+
+```{r}
+phumid_temp = ggplot(sonoma_net, aes(x = humid_temp))+
+  geom_histogram(binwidth = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "Temperature \u00B0C",
+       y= "Frequency",
+       title = "Temperature")+
+  my_theme
+```
+
+```{r}
+pdepth = ggplot(sonoma_net, aes(x = depth))+
+  geom_histogram(binwidth = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "Depth",
+       y= "Frequency",
+       title = "Histogram of Depth")+
+  my_theme
+```
+
+```{r}
+phumidadj = ggplot(sonoma_net, aes(x = humid_adj))+
+  geom_histogram(binwidth = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "Adjusted Humidity",
+       y= "Frequency",
+       title = "Histogram of Adjusted Humidity")+
+  my_theme
+```
+
+```{r}
+phamatop = ggplot(sonoma_net, aes(x = hamatop))+
+  geom_histogram(bins=10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "μmol/m^2/s",
+       title = "Incident PAR",
+       y = "Frequency")+
+  my_theme
+```
+
+```{r}
+phamabot = ggplot(sonoma_net, aes(x = hamabot))+
+  geom_histogram(bins = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "μmol/m^2/s",
+       y= "Frequency",
+       title = "Reflected PAR")+
+  my_theme
+```
+
+
+```{r}
+pvoltagel = ggplot(sonoma_log, aes(x = voltage))+
+  geom_histogram(bins = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "V",
+       y= "Frequency",
+       title = "Voltage",
+       subtitle = "Log Data")+
+  my_theme
+```
+
+```{r}
+phumidl = ggplot(sonoma_log, aes(x = humidity))+
+  geom_histogram(bins = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "%RH",
+       y= "Frequency",
+       title = "Humidity")+
+  my_theme
+```
+
+```{r}
+phumidl_temp = ggplot(sonoma_log, aes(x = humid_temp))+
+  geom_histogram(binwidth = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "Temperature \u00B0C",
+       y= "Frequency",
+       title = "Temperature")+
+  my_theme
+```
+
+```{r}
+pdepthl = ggplot(sonoma_log, aes(x = depth))+
+  geom_histogram(binwidth = 10,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "Depth",
+       y= "Frequency",
+       title = "Histogram of Depth")+
+  my_theme
+```
+
+```{r}
+phumidadjl = ggplot(sonoma_log, aes(x = humid_adj))+
+  geom_histogram(binwidth = 100,
+                 fill = "skyblue",
+                 color = "black")+
+  labs(x= "Adjusted Humidity",
+       y= "Frequency",
+       title = "Histogram of Adjusted Humidity")+
+  my_theme
+```
+
+```{r}
+phamatopl = ggplot(sonoma_log, aes(x = hamatop))+
+  geom_histogram(color = "black",
+                 fill = "skyblue")+
+  labs(x= "μmol/m^2/s",
+       y= "Frequency",
+       title = "Incident PAR")+
+  my_theme
+```
+
+```{r}
+phamabotl = ggplot(sonoma_log, aes(x = hamabot))+
+  geom_histogram(
+                 fill = "skyblue",
+                 color = "black",
+                 na.rm = T)+
+  labs(x= "μmol/m^2/s",
+       y= "Frequency",
+       title = "Reflected PAR")+
+  my_theme
+```
+
+```{r,warning= F, message= F}
+
+grid.arrange(pvoltage,
+          phumid,
+          phamabot,
+          phamatop,
+          pvoltagel,
+          phumidl,
+          phamabotl,
+          phamatopl,
+          ncol = 4)
+```
+
+The main variables we are going to focus on are Voltage, Humidity, Incident PAR, and Reflected PAR. The 
+
+
+
+```{r}
+#newfac = sum(sonoma_net$voltage,na.rm = T)/sum(sonoma_log$voltage,na.rm = T)
+```
+
+```{r}
+#voltagef = mean(newdata$voltage.y/newdata$voltage.x)
+#sonoma_net$voltage = log2(sonoma_net$voltage)
+```
+
+```{r}
+sonoma_log_voltage = sonoma_log[which(2.4<=sonoma_log$voltage & sonoma_log$voltage<=3), c("id", "voltage")]
+ev_log = sonoma_log_voltage[,c('id', 'voltage')]
+ev_net = sonoma_net[,c('id', 'voltage')]
+ev_merge = inner_join(ev_log, ev_net, by='id')
+model_voltage = lm(ev_merge$voltage.x~ev_merge$voltage.y)
+#plot(ev_merge$voltage.y, ev_merge$voltage.x)
+
+```
+
+```{r}
+beta1 = model_voltage$coefficients[2]
+beta0 = model_voltage$coefficients[1]
+```
+
+```{r,message=F, warning= F}
+ggplot(ev_merge, aes(x = voltage.y, 
+                     y =voltage.x))+
+  geom_point(color = "dodgerblue2")+
+  geom_smooth(method = "lm",color = "coral")+
+  labs(x = "Voltage from Net Data",
+       y = "Voltage from Log data")+
+  my_theme
+  
+
+
+```
+
+
+```{r}
+# voltage 
+beta1 = model_voltage$coefficients[2]
+beta0 = model_voltage$coefficients[1]
+sonoma_net$voltage_imputed = sonoma_net$voltage*beta1 + beta0
+
+```
+
+```{r}
+# unit for top and bottom 
+sonoma_net$hamatop =sonoma_net$hamatop*0.0185
+sonoma_net$hamabot =sonoma_net$hamabot*0.0185
+sonoma_log$hamatop =sonoma_log$hamatop*0.0185
+sonoma_log$hamabot =sonoma_log$hamabot*0.0185
+
+
+```
+
+```{r}
+sonoma_log$Dates = NULL
+sonoma_net$Dates = NULL
+```
+
+```{r}
+Month_trans = function(x){
+  if (x == "Apr"){
+    return(4)}
+  else if (x =="Jun"){
+    return (6)
+  }
+  else if (x == "May"){
+    return(5)
+  }
+  
+}
+
+```
+
+```{r}
+sonoma_log$Month = sapply(sonoma_log$Month,Month_trans )
+sonoma_net$Month = sapply(sonoma_net$Month,Month_trans )
+
+```
+
+```{r}
+sonoma_log$Dates = paste(sonoma_log$Year, 
+                         sonoma_log$Month, 
+                         sonoma_log$Date)
+sonoma_log$Dates = as.character(sonoma_log$Dates)
+sonoma_net$Dates = paste(sonoma_net$Year, 
+                         sonoma_net$Month, 
+                         sonoma_net$Date)
+sonoma_net$Dates = as.character(sonoma_net$Dates)
+#sonoma_log$Dates = as.Date(sonoma_log$Dates, format = "%Y %m %d")
+#sonoma_net$Dates = as.Date(sonoma_net$Dates, format = "%Y %m %d")
+
+
+```
+
+```{r}
+sonoma_log$datetime_temp = paste(sonoma_log$Dates, sonoma_log$Time)
+sonoma_net$datetime_temp = paste(sonoma_net$Dates, sonoma_net$Time)
+sonoma_log$datetime = as.POSIXct(strptime(sonoma_log$datetime_temp, format = "%Y %m %d %H:%M:%S"))
+sonoma_net$datetime = as.POSIXct(strptime(sonoma_net$datetime_temp, format = "%Y %m %d %H:%M:%S"))
+
+sonoma_log$Time = as.POSIXct(strptime(sonoma_log$Time, format = "%H:%M:%S"))
+sonoma_net$Time = as.POSIXct(strptime(sonoma_net$Time, format = "%H:%M:%S"))
+
+sonoma_log$Hour = as.integer(format(sonoma_log$Time, format = "%H"))
+sonoma_net$Hour = as.integer(format(sonoma_net$Time, format = "%H"))
+
+sonoma_log$Dates = as.Date(sonoma_log$Dates, format = "%Y %m %d")
+sonoma_net$Dates = as.Date(sonoma_net$Dates, format = "%Y %m %d")
+
+sonoma_log$datetime_temp=NULL
+sonoma_net$datetime_temp=NULL
+
+```
+
+
+```{r}
+#sonoma_log$Time = as.POSIXct(strptime(sonoma_log$Time, format = '%H:%M:%S'))
+#sonoma_net$Time = as.POSIXct(strptime(sonoma_net$Time, format = '%H:%M:%S'))
+
+```
+
+
+# NA value 
+
+```{r}
+
+NA_log <- sonoma_log[rowSums(is.na(sonoma_log)) > 0,]
+NA_net <- sonoma_net[rowSums(is.na(sonoma_net))>0,]
+
+
+```
+
+```{r}
+
+plot_NAl = ggplot(NA_log, aes(x = Dates))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins =31)+
+  scale_x_date(date_breaks = "7 days")+
+  labs(x = "Date",
+       y = "NA counts",
+       caption = "From Log data")+
+  my_theme
+```
+
+```{r}
+
+plot_NAn =ggplot(NA_net, aes(x = Dates))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins =23)+
+  scale_x_date(date_breaks = "7 days")+
+  labs(x = "Date",
+       y = "NA counts",
+       caption = "From Net Data")+
+  my_theme
+
+```
+
+```{r,fig.cap="NA values versus Date",fig.height= 5, fig.width= 5}
+grid.arrange(plot_NAl, plot_NAn,ncol = 2)
+
+```
+
+
+```{r}
+sonoma_log = na.omit(sonoma_log)
+sonoma_net = na.omit(sonoma_net)
+
+```
+
+```{r}
+boxvl = ggplot(sonoma_log, aes(x = voltage))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 30)+
+  labs(y = "count", 
+       x = "Voltage",
+       caption = "From log data")+
+  my_theme
+
+
+```
+
+```{r}
+boxvn = ggplot(sonoma_net, aes(x = voltage_imputed))+
+  geom_histogram(color = "black"
+    ,fill = "coral",
+    bins = 30)+
+  labs(y = "count", 
+       x = "Voltage",
+       caption = "From net data")+
+  my_theme
+
+
+```
+
+```{r}
+grid.arrange(boxvl,
+             boxvn,
+             ncol = 2)
+```
+
+
+```{r}
+# voltage clean
+sonoma_log = sonoma_log[which(2.4<=sonoma_log$voltage & sonoma_log$voltage<=3),]
+
+sonoma_net = sonoma_net[which(2.4<=sonoma_net$voltage_imputed & sonoma_net$voltage_imputed<=3),]
+
+```
+
+```{r}
+histl = ggplot(sonoma_log, aes(x = hamabot))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 30)+
+  labs(x ="Reflected PAR",
+       y = "Count",
+       title = "Histogram for Reflected PAR",
+       subtitle = "From log data")+
+  my_theme
+
+histn =  ggplot(sonoma_net, aes(x = hamabot))+
+  geom_histogram(color = "black",
+                 fill = "coral",
+                 bins = 30)+
+  labs(x ="Reflected PAR",
+       y = "Count",
+       title = "Histogram for Reflected PAR",
+       subtitle = "From net data")+
+  my_theme
+
+grid.arrange(histl, histn,
+             ncol = 2)
+
+```
+
+```{r}
+boxl = ggplot(sonoma_log, aes(x = hamatop))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 30)+
+  labs(x ="Incident PAR",
+       y = "Count",
+       subtitle = "From log data")+
+  my_theme
+
+boxn =  ggplot(sonoma_net, aes(x = hamatop))+
+  geom_histogram(color = "black",
+                 fill = "coral",
+                 bins = 30)+
+  labs(x ="Incident PAR",
+       y = "Count",
+       subtitle = "From net data")+
+  my_theme
+```
+
+```{r}
+grid.arrange(boxl, boxn,
+             ncol = 2)
+
+```
+
+
+```{r}
+# hamatop clean
+index = which(sonoma_net$hamatop >2000)
+sonoma_net = sonoma_net[-index]
+
+index2 = which(sonoma_log$hamatop >2000)
+sonoma_log = sonoma_log[-index2]
+```
+
+```{r}
+# Humidity temperature 
+boxl = ggplot(sonoma_log, aes(y = humid_temp))+
+  geom_boxplot(fill = "skyblue")+
+  labs(x = "Count",
+       y = "Humidity Temperature",
+       caption = "From log data",
+       title = "Boxplot for Humidity Temp.")+
+  my_theme
+
+boxn = ggplot(sonoma_net, aes(y = humid_temp))+
+  geom_boxplot(fill = "coral")+
+  labs(x = "Count",
+       y = "Humidity Temperature",
+       caption = "From net data",
+       title = "Boxplot for Humidity Temp.")+
+  my_theme
+
+grid.arrange(boxn,
+             boxl,
+             ncol = 2)
+
+```
+
+```{r}
+inner = inner_join(sonoma_net, sonoma_log, by='id')
+outer = sonoma_net[-which(sonoma_net$id %in% inner$id),]
+outer$voltage = outer$voltage_imputed
+outer$voltage_imputed = NULL
+sonoma_all = rbind(sonoma_log, outer)
+
+```
+
+
+# EDA 
+
+```{r}
+
+target_1 = sonoma_all %>%
+  select(Hour,hamatop,hamabot,humidity,humid_temp)%>%
+  filter(8 <= Hour & Hour <= 20)#%>%
+  #group_by(Hour)%>%
+  #summarise("humidity" = mean(humidity),
+          #  "humid_temp" = mean(humid_temp),
+           # "hamatop" = mean(hamatop),
+           # "hamabot" = mean(hamabot))
+```
+
+```{r}
+ggpairs(target_1[,-1])+
+  my_theme
+
+```
+
+
+```{r}
+
+q = as.vector(quantile(sonoma_all$Height, probs = c(0.25, 0.5, 0.75)))
+break_level = function(x, quantile = q) {
+  if (x < as.numeric(quantile[1]) ){
+    return ("Low")
+  } 
+  if (as.numeric(quantile[1]) <= x & as.numeric(quantile[2]) >= x) {
+    return ("Mid-Low")
+  } 
+  if (as.numeric(quantile[2]) <= x & as.numeric(quantile[3]) >= x) {
+    return ("Mid-High")
+  } 
+  if (as.numeric(quantile[3]) < x) {
+    return ("High")
+  }
+}
+
+sonoma_all$Height_level = sapply(sonoma_all$Height, break_level)
+
+```
+
+```{r}
+q = as.vector(quantile(sonoma_all$humidity, probs = c(0.25, 0.5, 0.75)))
+
+
+sonoma_all$Humid_level = sapply(sonoma_all$humidity, break_level)
+
+```
+
+```{r}
+q = as.vector(quantile(sonoma_all$humid_temp, probs = c(0.25, 0.5, 0.75)))
+
+sonoma_all$Temp_level = sapply(sonoma_all$humid_temp, break_level)
+
+```
+
+```{r}
+df_avg = sonoma_all %>%
+  select(Hour, Tree, humidity, humid_temp, hamatop, hamabot, Height_level) %>%
+  group_by(Hour, Height_level) %>%
+  summarise("humidity" = mean(humidity),
+            "humid_temp" = mean(humid_temp),
+            "hamatop" = mean(hamatop),
+            "hamabot" = mean(hamabot))
+
+plot1 = ggplot(df_avg, 
+               aes(x=Hour, 
+                   y=humidity,
+                   color=as.factor(Height_level))) +
+  labs(color = "Height Level",
+       y = "Humidity")+
+  geom_line() + 
+  my_theme
+  
+plot2 = ggplot(df_avg, aes(x=Hour, 
+                           y=humid_temp, 
+                           color=as.factor(Height_level))) +
+  geom_line()+ 
+  labs(color = "Height Level",
+       y = "Temperature")+
+  my_theme
+
+plot3 = ggplot(df_avg, aes(x=Hour, 
+                           y=hamatop, 
+                           color=as.factor(Height_level))) +
+  geom_line() + 
+  labs(color = "Height Level",
+       y = "Incident PAR")+
+  my_theme
+
+plot4 = ggplot(df_avg, aes(x=Hour, 
+                           y=hamabot, 
+                           color=as.factor(Height_level))) +
+  geom_line() + 
+  labs(color = "Height Level",
+       y = "Reflected PAR")+
+  my_theme
+
+legend = get_legend(plot4)
+grid.arrange(plot1,plot2,nrow= 2)
+```
+```{r}
+grid.arrange(plot3,plot4,nrow= 2)
+
+
+```
+
+```{r}
+df_avg = sonoma_all %>%
+  select(Dates, humidity, humid_temp, hamatop, hamabot, Height_level) %>%
+  group_by(Dates, Height_level) %>%
+  summarise("humidity" = mean(humidity),
+            "humid_temp" = mean(humid_temp),
+            "hamatop" = mean(hamatop),
+            "hamabot" = mean(hamabot))
+
+plotn1 = ggplot(df_avg, aes(x=Dates, y=humidity, color=as.factor(Height_level))) +
+  geom_line() + 
+  my_theme+
+  labs(y = "Humidity")
+
+plotn2 = ggplot(df_avg, aes(x=Dates, y=humid_temp, color=as.factor(Height_level))) +
+  geom_line() + 
+  my_theme+
+  labs(y = "Temperature")
+
+plotn3= ggplot(df_avg, aes(x=Dates, y=hamatop, color=as.factor(Height_level))) +
+  geom_line() + 
+  my_theme+
+  labs(y = "Incident PAR")
+
+plotn4 = ggplot(df_avg, aes(x=Dates, y=hamabot, color=as.factor(Height_level))) +
+  geom_line() + 
+  my_theme+
+  labs(y = "Reflected PAR")
+
+
+
+```
+
+```{r, fig.height= 10}
+grid.arrange(plotn1,plotn2,plotn3,plotn4,
+             nrow = 4)
+
+```
+
+
+```{r}
+target = sonoma_all %>%
+  select(humidity,humid_temp,hamatop,hamabot)
+
+pca = prcomp(target, scale. = T)
+scores = pca$x
+loading = pca$rotation
+values = pca$sdev^2
+
+```
+
+```{r}
+eigs_cum <- values/sum(values)
+
+ggplot() + 
+  geom_line(aes(x = 1:length(values),
+                 y = eigs_cum),
+             col = "skyblue") +
+  geom_point(aes(x = 1:length(values),
+                 y = eigs_cum))+
+labs(x = "first PCs", 
+     y = "fraction of total variance explained",
+     title = "Scree plot of the eigenvalues")+
+  my_theme
+
+```
+
+## k-means  
+
+```{r}
+
+k_means = kmeans(target, centers = 3)
+
+```
+
+```{r}
+df_pca = data.frame(scores)
+df_pca$cluster = k_means$cluster
+ggplot(df_pca)+
+  geom_point(aes(x = PC1,
+                 y = PC2,
+                 color = as.factor(cluster)), alpha=0.3)+
+  labs(x = "PC1",
+       y = "PC2",
+       title = "The scatter plot for PC1 VS. PC2")+
+  scale_color_discrete(name ="Cluster")+
+  my_theme
+```
+
+# 5 
+
+## a. 
+
+```{r}
+
+plot_temp = ggplot(sonoma_all, aes(x = log(humid_temp)))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 10)+
+  labs(title = "Logged Temperature",
+       x = "Temperature \u00B0C",
+       y = "Count")+
+  my_theme
+
+
+ plot_humid = ggplot(sonoma_all, aes(x = log(humidity)))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 10)+
+  labs(title = "Logged Relative Humidity",
+       x = "Relative Humidity %RH",
+       y = "Count")+
+  my_theme
+ 
+plot_top = ggplot(sonoma_all, aes(x = log(hamatop)))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 10)+
+  labs(title = "Logged Incident PAR",
+       x = "μmol/m^2/s",
+       y = "Count")+
+  my_theme
+
+
+plot_bot = ggplot(sonoma_all, aes(x = log(hamabot)))+
+  geom_histogram(color = "black",
+                 fill = "skyblue",
+                 bins = 10)+
+  labs(title = "Logged Reflected PAR",
+       x = "μmol/m^2/s",
+       y = "Count")+
+  my_theme
+
+
+grid.arrange(plot_humid,plot_temp, plot_top,plot_bot,
+             ncol = 2,
+             nrow = 2)
+
+```
+
+
+
+
+
+
+
+
+
